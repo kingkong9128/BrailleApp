@@ -1,0 +1,18 @@
+{
+  "expo": {
+    "name": "BrailleApp", 
+    "slug": "braille-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "android": {
+      "package": "com.saubhagya.brailleapp",
+      "permissions": [
+        "android.permission.CAMERA"
+      ]
+    },
+    "plugins": [
+      "expo-router",
+      "expo-camera"
+    ]
+  }
+} 

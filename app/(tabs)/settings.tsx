@@ -3,26 +3,23 @@ import {
   View,
   Text,
   StyleSheet,
-  TouchableOpacity,
-  SafeAreaView,
   Switch,
   ScrollView,
+  Alert,
+  TouchableOpacity,
+  TextInput,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { speak } from 'expo-speech';
-import { 
-  Volume2, 
-  VolumeX, 
-  Info, 
-  Zap, 
-  Smartphone 
-} from 'lucide-react-native';
+import { Volume2, Bell, Zap, Info, Eye, Save } from 'lucide-react-native';
+import { BrailleRecognizer } from '../../utils/brailleRecognition';
 
 export default function SettingsScreen() {
   const [speechEnabled, setSpeechEnabled] = useState(true);
-  const [speechRate, setSpeechRate] = useState(0.8);
-  const [speechPitch, setSpeechPitch] = useState(1.0);
-  const [hapticFeedback, setHapticFeedback] = useState(true);
+  const [vibrationsEnabled, setVibrationsEnabled] = useState(true);
+  const [debugMode, setDebugMode] = useState(false);
+  const [apiKey, setApiKey] = useState('');
+  const [recognizer] = useState(() => new BrailleRecognizer());
+  const [apiStatus, setApiStatus] = useState('Not configured');
 
   useEffect(() => {
     loadSettings();
@@ -30,144 +27,185 @@ export default function SettingsScreen() {
 
   const loadSettings = async () => {
     try {
-      const settings = await Promise.all([
-        AsyncStorage.getItem('speechEnabled'),
-        AsyncStorage.getItem('speechRate'),
-        AsyncStorage.getItem('speechPitch'),
-        AsyncStorage.getItem('hapticFeedback'),
-      ]);
+      const savedSpeech = await AsyncStorage.getItem('speechEnabled');
+      const savedVibrations = await AsyncStorage.getItem('vibrationsEnabled');
+      const savedDebug = await AsyncStorage.getItem('debugMode');
+      const savedApiKey = await AsyncStorage.getItem('openrouterApiKey');
 
-      if (settings[0] !== null) setSpeechEnabled(JSON.parse(settings[0]));
-      if (settings[1] !== null) setSpeechRate(parseFloat(settings[1]));
-      if (settings[2] !== null) setSpeechPitch(parseFloat(settings[2]));
-      if (settings[3] !== null) setHapticFeedback(JSON.parse(settings[3]));
+      if (savedSpeech !== null) setSpeechEnabled(JSON.parse(savedSpeech));
+      if (savedVibrations !== null) setVibrationsEnabled(JSON.parse(savedVibrations));
+      if (savedDebug !== null) setDebugMode(JSON.parse(savedDebug));
+      if (savedApiKey !== null) {
+        setApiKey(savedApiKey);
+        const success = recognizer.setOpenRouterApiKey(savedApiKey);
+        if (success) {
+          setApiStatus('✅ Connected to OpenRouter Gemini 2.5 Flash Lite');
+        }
+      }
     } catch (error) {
       console.error('Error loading settings:', error);
     }
   };
 
-  const saveSettings = async () => {
+  const saveSetting = async (key: string, value: any) => {
     try {
-      await Promise.all([
-        AsyncStorage.setItem('speechEnabled', JSON.stringify(speechEnabled)),
-        AsyncStorage.setItem('speechRate', speechRate.toString()),
-        AsyncStorage.setItem('speechPitch', speechPitch.toString()),
-        AsyncStorage.setItem('hapticFeedback', JSON.stringify(hapticFeedback)),
-      ]);
+      await AsyncStorage.setItem(key, JSON.stringify(value));
     } catch (error) {
-      console.error('Error saving settings:', error);
+      console.error('Error saving setting:', error);
     }
   };
 
-  useEffect(() => {
-    saveSettings();
-  }, [speechEnabled, speechRate, speechPitch, hapticFeedback]);
+  const saveApiKey = async () => {
+    if (!apiKey.trim()) {
+      Alert.alert('Error', 'Please enter an API key');
+      return;
+    }
 
-  const testSpeech = () => {
-    speak('This is a test of the speech settings', {
-      language: 'en',
-      pitch: speechPitch,
-      rate: speechRate,
-    });
+    try {
+      const success = recognizer.setOpenRouterApiKey(apiKey.trim());
+      if (success) {
+        await AsyncStorage.setItem('openrouterApiKey', apiKey.trim());
+        setApiStatus('✅ Connected to OpenRouter Gemini 2.5 Flash Lite');
+        Alert.alert('Success!', 'OpenRouter API key configured successfully. You can now use real AI recognition!');
+      } else {
+        Alert.alert('Error', 'Failed to configure API key. Please check the key and try again.');
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Failed to save API key');
+    }
   };
 
-  const adjustSpeechRate = (increase: boolean) => {
-    const newRate = increase 
-      ? Math.min(speechRate + 0.1, 2.0)
-      : Math.max(speechRate - 0.1, 0.1);
-    setSpeechRate(Math.round(newRate * 10) / 10);
-  };
-
-  const adjustSpeechPitch = (increase: boolean) => {
-    const newPitch = increase 
-      ? Math.min(speechPitch + 0.1, 2.0)
-      : Math.max(speechPitch - 0.1, 0.1);
-    setSpeechPitch(Math.round(newPitch * 10) / 10);
+  const getApiKey = () => {
+    Alert.alert(
+      'Get OpenRouter API Key',
+      'To use real AI Braille recognition:\n\n1. Go to openrouter.ai\n2. Sign up for free\n3. Get an API key\n4. Paste it below\n\nOpenRouter gives you access to Gemini 2.5 Flash Lite at $0.10/M input tokens!',
+      [
+        { text: 'OK' }
+      ]
+    );
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
+    <ScrollView style={styles.container}>
+      <View style={styles.content}>
         <Text style={styles.title}>Settings</Text>
-      </View>
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {/* Speech Settings */}
+        {/* AI Configuration */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Zap size={24} color="#3B82F6" />
+            <Text style={styles.sectionTitle}>AI Configuration</Text>
+          </View>
+          
+          <View style={styles.settingItem}>
+            <Text style={styles.settingLabel}>OpenRouter API Key</Text>
+            <Text style={styles.settingDescription}>
+              Use real Gemini 2.5 Flash Lite AI for accurate Braille recognition
+            </Text>
+            <Text style={styles.statusText}>{apiStatus}</Text>
+            
+            <TextInput
+              style={styles.textInput}
+              placeholder="sk-or-v1-..."
+              value={apiKey}
+              onChangeText={setApiKey}
+              secureTextEntry
+              autoCapitalize="none"
+            />
+            
+            <View style={styles.buttonRow}>
+              <TouchableOpacity 
+                style={styles.primaryButton}
+                onPress={saveApiKey}
+              >
+                <Save size={16} color="#FFFFFF" />
+                <Text style={styles.buttonText}>Save Key</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={styles.secondaryButton}
+                onPress={getApiKey}
+              >
+                <Text style={styles.secondaryButtonText}>Get API Key</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+
+        {/* Audio Settings */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Volume2 size={24} color="#3B82F6" />
-            <Text style={styles.sectionTitle}>Speech Settings</Text>
+            <Text style={styles.sectionTitle}>Audio</Text>
           </View>
 
           <View style={styles.settingRow}>
-            <Text style={styles.settingLabel}>Enable Speech</Text>
+            <View style={styles.settingInfo}>
+              <Text style={styles.settingLabel}>Text-to-Speech</Text>
+              <Text style={styles.settingDescription}>
+                Automatically read recognized text aloud
+              </Text>
+            </View>
             <Switch
               value={speechEnabled}
-              onValueChange={setSpeechEnabled}
+              onValueChange={(value) => {
+                setSpeechEnabled(value);
+                saveSetting('speechEnabled', value);
+              }}
               trackColor={{ false: '#374151', true: '#3B82F6' }}
-              thumbColor={speechEnabled ? '#FFFFFF' : '#9CA3AF'}
+              thumbColor="#FFFFFF"
             />
           </View>
-
-          {speechEnabled && (
-            <>
-              <View style={styles.settingRow}>
-                <Text style={styles.settingLabel}>Speech Rate: {speechRate}</Text>
-                <View style={styles.adjustButtons}>
-                  <TouchableOpacity
-                    style={styles.adjustButton}
-                    onPress={() => adjustSpeechRate(false)}
-                  >
-                    <Text style={styles.adjustButtonText}>-</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.adjustButton}
-                    onPress={() => adjustSpeechRate(true)}
-                  >
-                    <Text style={styles.adjustButtonText}>+</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-
-              <View style={styles.settingRow}>
-                <Text style={styles.settingLabel}>Speech Pitch: {speechPitch}</Text>
-                <View style={styles.adjustButtons}>
-                  <TouchableOpacity
-                    style={styles.adjustButton}
-                    onPress={() => adjustSpeechPitch(false)}
-                  >
-                    <Text style={styles.adjustButtonText}>-</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.adjustButton}
-                    onPress={() => adjustSpeechPitch(true)}
-                  >
-                    <Text style={styles.adjustButtonText}>+</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-
-              <TouchableOpacity style={styles.testButton} onPress={testSpeech}>
-                <Text style={styles.testButtonText}>Test Speech</Text>
-              </TouchableOpacity>
-            </>
-          )}
         </View>
 
-        {/* Device Settings */}
+        {/* Feedback Settings */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
-            <Smartphone size={24} color="#3B82F6" />
-            <Text style={styles.sectionTitle}>Device Settings</Text>
+            <Bell size={24} color="#3B82F6" />
+            <Text style={styles.sectionTitle}>Feedback</Text>
           </View>
 
           <View style={styles.settingRow}>
-            <Text style={styles.settingLabel}>Haptic Feedback</Text>
+            <View style={styles.settingInfo}>
+              <Text style={styles.settingLabel}>Vibrations</Text>
+              <Text style={styles.settingDescription}>
+                Haptic feedback for scanning and recognition
+              </Text>
+            </View>
             <Switch
-              value={hapticFeedback}
-              onValueChange={setHapticFeedback}
+              value={vibrationsEnabled}
+              onValueChange={(value) => {
+                setVibrationsEnabled(value);
+                saveSetting('vibrationsEnabled', value);
+              }}
               trackColor={{ false: '#374151', true: '#3B82F6' }}
-              thumbColor={hapticFeedback ? '#FFFFFF' : '#9CA3AF'}
+              thumbColor="#FFFFFF"
+            />
+          </View>
+        </View>
+
+        {/* Developer Settings */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Eye size={24} color="#3B82F6" />
+            <Text style={styles.sectionTitle}>Developer</Text>
+          </View>
+
+          <View style={styles.settingRow}>
+            <View style={styles.settingInfo}>
+              <Text style={styles.settingLabel}>Debug Mode</Text>
+              <Text style={styles.settingDescription}>
+                Show detailed processing information
+              </Text>
+            </View>
+            <Switch
+              value={debugMode}
+              onValueChange={(value) => {
+                setDebugMode(value);
+                saveSetting('debugMode', value);
+              }}
+              trackColor={{ false: '#374151', true: '#3B82F6' }}
+              thumbColor="#FFFFFF"
             />
           </View>
         </View>
@@ -179,25 +217,24 @@ export default function SettingsScreen() {
             <Text style={styles.sectionTitle}>About</Text>
           </View>
 
-          <View style={styles.infoContainer}>
-            <Text style={styles.infoTitle}>Braille Scanner</Text>
-            <Text style={styles.infoVersion}>Version 1.0.0</Text>
-            <Text style={styles.infoDescription}>
-              A simple and accessible Braille character scanner that converts Braille text to English with voice output support.
-            </Text>
-            
-            <View style={styles.featureList}>
-              <Text style={styles.featureTitle}>Features:</Text>
-              <Text style={styles.featureItem}>• Camera-based Braille scanning</Text>
-              <Text style={styles.featureItem}>• Text-to-speech conversion</Text>
-              <Text style={styles.featureItem}>• Scan history storage</Text>
-              <Text style={styles.featureItem}>• Accessible interface design</Text>
-              <Text style={styles.featureItem}>• Offline functionality</Text>
-            </View>
+          <View style={styles.aboutItem}>
+            <Text style={styles.aboutLabel}>App Version</Text>
+            <Text style={styles.aboutValue}>1.0.0</Text>
           </View>
+
+          <View style={styles.aboutItem}>
+            <Text style={styles.aboutLabel}>AI Model</Text>
+            <Text style={styles.aboutValue}>Gemini 2.5 Flash Lite via OpenRouter</Text>
+          </View>
+
+          <Text style={styles.aboutDescription}>
+            This app uses Google's Gemini 2.5 Flash Lite through OpenRouter for accurate, 
+            real-time Braille text recognition. The AI model is optimized for ultra-low 
+            latency and cost efficiency at just $0.10 per million input tokens.
+          </Text>
         </View>
-      </ScrollView>
-    </SafeAreaView>
+      </View>
+    </ScrollView>
   );
 }
 
@@ -206,19 +243,14 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#111827',
   },
-  header: {
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    backgroundColor: '#1F2937',
+  content: {
+    padding: 20,
   },
   title: {
     fontSize: 24,
     fontWeight: 'bold',
     color: '#FFFFFF',
-  },
-  content: {
-    flex: 1,
-    padding: 20,
+    marginBottom: 20,
   },
   section: {
     marginBottom: 32,
@@ -244,76 +276,89 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginBottom: 8,
   },
+  settingItem: {
+    marginBottom: 20,
+  },
   settingLabel: {
     fontSize: 16,
     color: '#FFFFFF',
     flex: 1,
   },
-  adjustButtons: {
-    flexDirection: 'row',
-    gap: 8,
+  settingInfo: {
+    flex: 1,
   },
-  adjustButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#374151',
-    justifyContent: 'center',
-    alignItems: 'center',
+  settingDescription: {
+    fontSize: 14,
+    color: '#9CA3AF',
+    marginBottom: 8,
   },
-  adjustButtonText: {
-    fontSize: 20,
-    fontWeight: 'bold',
+  statusText: {
+    fontSize: 14,
+    color: '#9CA3AF',
+    marginBottom: 10,
+  },
+  textInput: {
+    backgroundColor: '#263238',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     color: '#FFFFFF',
+    fontSize: 16,
+    marginBottom: 15,
   },
-  testButton: {
+  buttonRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  primaryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: '#3B82F6',
     paddingVertical: 12,
     paddingHorizontal: 24,
     borderRadius: 8,
-    alignSelf: 'flex-start',
-    marginTop: 8,
+    flex: 1,
   },
-  testButtonText: {
+  secondaryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#374151',
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+    flex: 1,
+  },
+  buttonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+    marginLeft: 8,
+  },
+  secondaryButtonText: {
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '600',
   },
-  infoContainer: {
-    backgroundColor: '#1F2937',
-    padding: 20,
-    borderRadius: 12,
+  aboutItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 10,
   },
-  infoTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
-    marginBottom: 4,
-  },
-  infoVersion: {
-    fontSize: 16,
-    color: '#6B7280',
-    marginBottom: 16,
-  },
-  infoDescription: {
+  aboutLabel: {
     fontSize: 16,
     color: '#9CA3AF',
-    lineHeight: 24,
-    marginBottom: 20,
   },
-  featureList: {
-    marginTop: 8,
-  },
-  featureTitle: {
-    fontSize: 18,
+  aboutValue: {
+    fontSize: 16,
+    color: '#FFFFFF',
     fontWeight: '600',
-    color: '#FFFFFF',
-    marginBottom: 8,
   },
-  featureItem: {
-    fontSize: 16,
+  aboutDescription: {
+    fontSize: 14,
     color: '#9CA3AF',
-    marginBottom: 4,
     lineHeight: 22,
   },
 });

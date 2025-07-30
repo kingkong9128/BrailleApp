@@ -1,84 +1,127 @@
-import { useState, useCallback, useRef } from 'react';
-import { BrailleRecognizer, RecognitionResult } from '@/utils/brailleRecognition';
-import { CameraView } from 'expo-camera';
-import { Platform } from 'react-native';
+import { useState, useRef } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { BrailleRecognizer, RecognitionResult } from '../utils/brailleRecognition';
 
-export function useBrailleRecognition() {
+export const useBrailleRecognition = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [lastResult, setLastResult] = useState<RecognitionResult | null>(null);
+  const [debugInfo, setDebugInfo] = useState<string>('');
   const recognizerRef = useRef<BrailleRecognizer | null>(null);
-  const cameraRef = useRef<CameraView>(null);
 
-  const getRecognizer = useCallback(() => {
+  // Initialize recognizer with saved API key
+  const initializeRecognizer = async () => {
     if (!recognizerRef.current) {
       recognizerRef.current = new BrailleRecognizer();
+      
+      // Try to load saved API key
+      try {
+        const savedApiKey = await AsyncStorage.getItem('openrouterApiKey');
+        if (savedApiKey) {
+          recognizerRef.current.setOpenRouterApiKey(savedApiKey);
+          console.log('Loaded saved OpenRouter API key');
+        }
+      } catch (error) {
+        console.error('Error loading API key:', error);
+      }
     }
     return recognizerRef.current;
-  }, []);
+  };
 
-  const recognizeFromCamera = useCallback(async (): Promise<RecognitionResult> => {
-    if (!cameraRef.current) {
-      throw new Error('Camera not available');
-    }
-
+  const recognizeFromCamera = async (imageUri: string) => {
     setIsProcessing(true);
+    setDebugInfo('Initializing recognition...');
     
     try {
-      console.log('Taking photo...');
+      const recognizer = await initializeRecognizer();
       
-      // Capture high-quality photo
-      const photo = await cameraRef.current.takePictureAsync({
-        quality: 1,
-        base64: false,
-        skipProcessing: false,
-        exif: false,
-      });
-
-      if (!photo?.uri) {
-        throw new Error('Failed to capture photo');
-      }
-
-      console.log('Photo captured, processing...', photo.uri);
-
-      // Process with Braille recognition
-      const recognizer = getRecognizer();
-      const result = await recognizer.recognizeFromImageUri(photo.uri);
+      // Check if API is configured
+      const status = recognizer.getStatus();
+      setDebugInfo(status);
       
-      console.log('Recognition completed:', {
-        text: result.text,
-        cellsFound: result.cells.length,
-        confidence: result.confidence,
-        processingTime: result.processingTime
-      });
-      
+      const result = await recognizer.recognizeFromImageUri(imageUri);
       setLastResult(result);
-      return result;
       
-    } catch (error) {
-      console.error('Recognition failed:', error);
-      
-      // For web platform, show a helpful message
-      if (Platform.OS === 'web') {
-        throw new Error('Camera recognition requires a mobile device. Please test on iOS or Android.');
+      // Update debug info with processing details
+      if (result.debugInfo) {
+        const debugText = [
+          `Status: ${status}`,
+          `Processing time: ${result.processingTime}ms`,
+          `Image: ${result.debugInfo.imageSize.width}x${result.debugInfo.imageSize.height}`,
+          `Confidence: ${Math.round(result.confidence * 100)}%`,
+          `Steps: ${result.debugInfo.processingSteps.length}`,
+          ...result.debugInfo.processingSteps.slice(-3) // Last 3 steps
+        ].join('\n');
+        setDebugInfo(debugText);
       }
       
-      throw error;
+      // Save to history
+      await saveToHistory(result);
+      
+      return result;
+    } catch (error) {
+      console.error('Recognition error:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      setDebugInfo(`Error: ${errorMessage}`);
+      
+      // Return error result
+      const errorResult: RecognitionResult = {
+        text: `Recognition failed: ${errorMessage}`,
+        brailleText: '',
+        confidence: 0,
+        cells: [],
+        processingTime: 0,
+        debugInfo: {
+          imageSize: { width: 0, height: 0 },
+          dotsDetected: 0,
+          cellsDetected: 0,
+          processingSteps: [`Error: ${errorMessage}`]
+        }
+      };
+      setLastResult(errorResult);
+      return errorResult;
     } finally {
       setIsProcessing(false);
     }
-  }, [getRecognizer]);
+  };
 
-  const setCameraRef = useCallback((ref: CameraView | null) => {
-    if (ref) {
-      cameraRef.current = ref;
+  const saveToHistory = async (result: RecognitionResult) => {
+    try {
+      const historyKey = 'brailleHistory';
+      const existingHistory = await AsyncStorage.getItem(historyKey);
+      const history = existingHistory ? JSON.parse(existingHistory) : [];
+      
+      const historyItem = {
+        id: Date.now().toString(),
+        timestamp: new Date().toISOString(),
+        text: result.text,
+        brailleText: result.brailleText,
+        confidence: result.confidence,
+        processingTime: result.processingTime,
+      };
+      
+      history.unshift(historyItem); // Add to beginning
+      
+      // Keep only last 100 items
+      if (history.length > 100) {
+        history.splice(100);
+      }
+      
+      await AsyncStorage.setItem(historyKey, JSON.stringify(history));
+    } catch (error) {
+      console.error('Error saving to history:', error);
     }
-  }, []);
+  };
+
+  const getRecognizerStatus = async (): Promise<string> => {
+    const recognizer = await initializeRecognizer();
+    return recognizer.getStatus();
+  };
 
   return {
-    recognizeFromCamera,
-    setCameraRef,
     isProcessing,
     lastResult,
-    cameraRef
+    debugInfo,
+    recognizeFromCamera,
+    getRecognizerStatus,
   };
-}
+};

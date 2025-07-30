@@ -35,7 +35,7 @@ export class ImageProcessor {
       };
     } catch (error) {
       console.error('Image preprocessing failed:', error);
-      throw new Error(`Image processing failed: ${error.message}`);
+      throw new Error(`Image processing failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
